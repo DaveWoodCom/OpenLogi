@@ -1,9 +1,11 @@
-//! HID++ keyboard Fn-lock writes — fn inversion `0x40a3` (multi-host), with
+//! HID++ keyboard Fn-lock reads and writes — fn inversion `0x40a3` (multi-host), with
 //! the single-host `0x40a2` as fallback.
 //!
-//! "Fn-lock on" means the F-row sends plain F1–F12 without holding Fn
-//! ([`FnInversionState::On`]); off restores the printed media/shortcut
-//! functions, with Fn+key producing the F-keys. Multi-host keyboards store the
+//! "Fn-lock on" means the F-row sends plain F1–F12 without holding Fn; off
+//! restores the printed media/shortcut functions, with Fn+key producing the
+//! F-keys. The firmware's *inversion* bit is the opposite: it inverts the F-row
+//! away from plain F-keys, so Fn-lock on is [`FnInversionState::Off`] (see
+//! [`inversion_for_fn_lock`]). Multi-host keyboards store the
 //! state per Easy-Switch slot, so the `0x40a3` path addresses
 //! [`HostIndex::Current`] — the slot the keyboard is talking to right now.
 
@@ -62,6 +64,22 @@ impl FnInversion {
         }
     }
 
+    /// Read the inversion state (for the current host on `0x40a3`).
+    async fn get(&self) -> Result<FnInversionState, WriteError> {
+        match self {
+            Self::MultiHost(feature) => feature
+                .get_global_fn_inversion(HostIndex::Current)
+                .await
+                .map(|info| info.state)
+                .map_err(|e| classify_hidpp_error(e, HidppOperation::ReadFnLock, 0x40a3)),
+            Self::SingleHost(feature) => feature
+                .get_global_fn_inversion()
+                .await
+                .map(|global| global.state)
+                .map_err(|e| classify_hidpp_error(e, HidppOperation::ReadFnLock, 0x40a2)),
+        }
+    }
+
     /// Write the inversion state (for the current host on `0x40a3`).
     async fn set(&self, state: FnInversionState) -> Result<(), WriteError> {
         match self {
@@ -80,6 +98,36 @@ impl FnInversion {
         }
         Ok(())
     }
+}
+
+/// Read the keyboard's Fn-lock state: `true` = F-row sends F1–F12 directly.
+pub async fn get_fn_lock(
+    backend: &dyn HidBackend,
+    route: &DeviceRoute,
+) -> Result<bool, WriteError> {
+    let index = route.device_index();
+    with_route(backend, route, move |channel| async move {
+        get_fn_lock_on_channel(&channel, index).await
+    })
+    .await
+}
+
+/// The Fn-lock read itself, on an already-open channel at HID++ `index`.
+async fn get_fn_lock_on_channel(
+    channel: &Arc<HidppChannel>,
+    index: u8,
+) -> Result<bool, WriteError> {
+    let mut device = Device::new(Arc::clone(channel), index)
+        .await
+        .map_err(|_| WriteError::DeviceUnreachable { index })?;
+    let state = FnInversion::open(&mut device).await?.get().await?;
+    debug!(index, ?state, "fn-lock read");
+    Ok(state == inversion_for_fn_lock(true))
+}
+
+/// Read keyboard Fn-lock on an already-open [`SharedChannel`].
+pub async fn get_fn_lock_on(shared: &SharedChannel) -> Result<bool, WriteError> {
+    get_fn_lock_on_channel(shared.channel(), shared.device_index()).await
 }
 
 /// Write the keyboard's Fn-lock state: `true` = F-row sends F1–F12 directly.
@@ -105,13 +153,34 @@ pub(super) async fn set_fn_lock_on_channel(
         .await
         .map_err(|_| WriteError::DeviceUnreachable { index })?;
     let fn_inversion = FnInversion::open(&mut device).await?;
-    fn_inversion.set(FnInversionState::from(on)).await?;
+    fn_inversion.set(inversion_for_fn_lock(on)).await?;
     debug!(index, on, "fn-lock written");
     Ok(())
+}
+
+/// The fn-inversion state that puts the F-row in `fn_lock` mode.
+///
+/// Inversion on makes the keys send their printed functions, with Fn+key for
+/// F1–F12; inversion off makes them send F1–F12. Verified on an ERGO K860
+/// (`0x40a3`), and it matches Solaar's "Swap Fx function" setting, whose
+/// "set" (byte `0x01`) means special functions by default.
+fn inversion_for_fn_lock(fn_lock: bool) -> FnInversionState {
+    FnInversionState::from(!fn_lock)
 }
 
 /// Write keyboard Fn-lock on an already-open [`SharedChannel`] — the fast
 /// path that skips enumeration and channel setup.
 pub async fn set_fn_lock_on(shared: &SharedChannel, on: bool) -> Result<(), WriteError> {
     set_fn_lock_on_channel(shared.channel(), shared.device_index(), on).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fn_lock_clears_the_inversion_bit() {
+        assert_eq!(inversion_for_fn_lock(true), FnInversionState::Off);
+        assert_eq!(inversion_for_fn_lock(false), FnInversionState::On);
+    }
 }
