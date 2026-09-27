@@ -26,9 +26,9 @@ use gpui_component::{
     v_flex,
 };
 use openlogi_core::binding::{Action, KeyCombo, WorkflowStep};
-use openlogi_core::config::KeyTrigger;
 
 use super::function_row::FunctionRowView;
+use super::target::KeyTarget;
 use crate::features::binding_editor::{compact_panel, divider, editor_scroll_list, title};
 use crate::state::AppState;
 use crate::ui::components::{MenuRow, control_input};
@@ -102,7 +102,7 @@ pub(crate) fn workflow_editor_seed(action: Option<&Action>) -> Vec<WorkflowStep>
 
 /// Render the editor card for `kind`, replacing the panel's action list.
 pub fn editor_card(
-    trigger: KeyTrigger,
+    target: KeyTarget,
     kind: PowerUserKind,
     text_state: Option<Entity<InputState>>,
     workflow_draft: Vec<WorkflowStep>,
@@ -111,9 +111,9 @@ pub fn editor_card(
     pal: Palette,
 ) -> gpui::Div {
     match kind {
-        PowerUserKind::Workflow => workflow_editor_card(trigger, workflow_draft, view, pal),
+        PowerUserKind::Workflow => workflow_editor_card(target, workflow_draft, view, pal),
         _ => match text_state {
-            Some(state) => text_editor_card(trigger, kind, state, draft_invalid, view, pal),
+            Some(state) => text_editor_card(target, kind, state, draft_invalid, view, pal),
             None => compact_panel(pal)
                 .w(px(300.))
                 .child(title(tr!("keyboard.editor_unavailable"), pal)),
@@ -124,7 +124,7 @@ pub fn editor_card(
 /// The keyboard-shortcut, TypeText, RunAppleScript, and RunShellCommand
 /// editors share a single text field; only the commit wrapping differs.
 fn text_editor_card(
-    trigger: KeyTrigger,
+    target: KeyTarget,
     kind: PowerUserKind,
     text_state: Entity<InputState>,
     draft_invalid: bool,
@@ -132,7 +132,7 @@ fn text_editor_card(
     pal: Palette,
 ) -> gpui::Div {
     let heading = tr!(kind.heading_key());
-    let key_name = trigger.to_string();
+    let key_name = target.name();
 
     compact_panel(pal)
         .w(px(300.))
@@ -151,18 +151,17 @@ fn text_editor_card(
                         invalid: draft_invalid,
                     })
                 })
-                .child(editor_action_row(trigger, kind, view)),
+                .child(editor_action_row(target, kind, view)),
         )
 }
 
 /// Cancel (back to list) + Save (commit the drafted text).
 fn editor_action_row(
-    trigger: KeyTrigger,
+    target: KeyTarget,
     kind: PowerUserKind,
     view: &Entity<FunctionRowView>,
 ) -> impl IntoElement {
     let view_save = view.clone();
-    let trigger_save = trigger.clone();
     let view_cancel = view.clone();
 
     h_flex()
@@ -190,9 +189,7 @@ fn editor_action_row(
                         view_save.update(cx, |v, vcx| v.mark_draft_invalid(vcx));
                         return;
                     };
-                    AppState::apply(cx, |state| {
-                        state.commit_keyboard_binding(trigger_save.clone(), Some(action))
-                    });
+                    AppState::apply(cx, |state| target.commit(state, action));
                     view_save.update(cx, |v, vcx| v.close_editor(vcx));
                 }),
         )
@@ -200,12 +197,12 @@ fn editor_action_row(
 
 /// The Workflow editor: a list of steps with add/remove.
 fn workflow_editor_card(
-    trigger: KeyTrigger,
+    target: KeyTarget,
     steps: Vec<WorkflowStep>,
     view: &Entity<FunctionRowView>,
     pal: Palette,
 ) -> gpui::Div {
-    let key_name = trigger.to_string();
+    let key_name = target.name();
 
     let rows = steps
         .into_iter()
@@ -252,13 +249,10 @@ fn workflow_editor_card(
                         .label(tr!("actions.save_workflow"))
                         .on_click({
                             let v = view.clone();
-                            let trigger = trigger.clone();
                             move |_e, _window, cx| {
                                 let steps = v.read(cx).workflow_draft().to_vec();
                                 let action = Action::Workflow(steps);
-                                AppState::apply(cx, |state| {
-                                    state.commit_keyboard_binding(trigger.clone(), Some(action))
-                                });
+                                AppState::apply(cx, |state| target.commit(state, action));
                                 v.update(cx, |v, vcx| v.close_editor(vcx));
                             }
                         }),
