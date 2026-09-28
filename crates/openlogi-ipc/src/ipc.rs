@@ -69,7 +69,8 @@ pub use succession::Identity;
 ///      K860 / MX Keys hotkeys, and `Capabilities::keyboard_keys` appended.
 /// v34 (local integration only): `Agent::read_fn_lock` and
 ///      `HidppOperation::ReadFnLock` appended.
-pub const PROTOCOL_VERSION: u32 = 34;
+/// v35 (local integration only): `AgentSnapshot::fn_locks` appended.
+pub const PROTOCOL_VERSION: u32 = 35;
 
 /// Environment variable through which the agent hands a supervised helper the
 /// run token it will serve, so the helper knows which agent it belongs to
@@ -146,6 +147,19 @@ pub struct AgentSnapshot {
     /// Which application per-app profiles are resolving against. See
     /// [`ForegroundApps`].
     pub foreground: ForegroundApps,
+    /// The last Fn-lock state the agent learned for each keyboard, from a
+    /// read, its own write, or the keyboard's change event (its Fn Lock key).
+    /// A keyboard it has learned nothing about is absent.
+    pub fn_locks: Vec<KeyboardFnLock>,
+}
+
+/// One keyboard's last known Fn-lock state in [`AgentSnapshot::fn_locks`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeyboardFnLock {
+    /// The keyboard's HID++ route.
+    pub route: DeviceRoute,
+    /// `true` when the F-row sends F1–F12 without holding Fn.
+    pub on: bool,
 }
 
 /// The application the agent currently resolves per-app profiles against, and
