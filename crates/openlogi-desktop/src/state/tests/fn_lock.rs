@@ -71,7 +71,7 @@ fn reopening_the_keys_tab_rereads_fn_lock(cx: &mut gpui::TestAppContext) {
         let entity = cx.new(|_| state);
         entity.update(cx, |state, _| state.connect_device_reads(swr, runtime));
         AppState::set_global(entity, cx);
-        AppState::update(cx, |state, cx| state.load_current_fn_lock(cx));
+        AppState::update(cx, AppState::load_current_fn_lock);
     });
     let current = |cx: &mut gpui::TestAppContext| {
         cx.update(|cx| {
