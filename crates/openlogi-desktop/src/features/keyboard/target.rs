@@ -34,7 +34,7 @@ impl KeyTarget {
     pub(crate) fn current(&self, state: &AppState) -> Option<Action> {
         match self {
             Self::Function(trigger) => state.keyboard_bindings().get(trigger).cloned(),
-            Self::Hotkey(button) => state.button_bindings().get(button).cloned(),
+            Self::Hotkey(button) => hotkey_binding(state, *button).cloned(),
         }
     }
 
@@ -67,6 +67,16 @@ impl KeyTarget {
             Self::Hotkey(button) => state.commit_binding(*button, Action::None),
         }
     }
+}
+
+/// What `button` is bound to on the selected keyboard, or `None` while it
+/// keeps its firmware function. A hotkey's default, [`Action::None`], reads
+/// as unbound like an F-key with no entry: the key is simply not diverted.
+pub(crate) fn hotkey_binding(state: &AppState, button: ButtonId) -> Option<&Action> {
+    state
+        .button_bindings()
+        .get(&button)
+        .filter(|action| **action != Action::None)
 }
 
 #[cfg(test)]
@@ -104,8 +114,9 @@ mod tests {
             "an F-key commit must leave the device's hotkeys alone"
         );
 
-        // Binding a hotkey to nothing hands it back to the firmware.
+        // Binding a hotkey to nothing hands it back to the firmware, which
+        // reads as unbound.
         let _ = hotkey.commit(&mut state, Action::None);
-        assert_eq!(hotkey.current(&state), Some(Action::None));
+        assert_eq!(hotkey.current(&state), None);
     }
 }

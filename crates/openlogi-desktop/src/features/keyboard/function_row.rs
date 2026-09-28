@@ -43,7 +43,7 @@ use openlogi_core::config::{FunctionKey, KeyModifiers, KeyTrigger};
 use super::editors::{
     PowerUserKind, text_editor_placeholder, text_editor_seed, workflow_editor_seed,
 };
-use super::target::KeyTarget;
+use super::target::{KeyTarget, hotkey_binding};
 use crate::app::{glow_canvas, keyboard_glow};
 use crate::features::binding_editor::{
     PickFn, action_icon_path, action_rows, compact_panel, divider, editor_scroll_list,
@@ -525,7 +525,6 @@ impl KeyRow {
             .map(|caps| caps.keyboard_keys)
             .unwrap_or_default();
         let keyboard_bindings = state.keyboard_bindings();
-        let button_bindings = state.button_bindings();
         let slots: Vec<KeySlot> = FUNCTION_KEYS
             .iter()
             .zip(points)
@@ -541,7 +540,7 @@ impl KeyRow {
                     .and_then(ButtonId::for_keyboard_control)
                     .filter(|button| divertable.contains(*button))
                     .map(|button| {
-                        let bound = button_bindings.get(&button);
+                        let bound = hotkey_binding(state, button);
                         SlotHotkey {
                             button,
                             binding: binding_label(bound),
@@ -572,7 +571,7 @@ impl KeyRow {
             .map(|button| HotkeySlot {
                 button,
                 name: tr!(button.translation_key()),
-                binding: binding_label(button_bindings.get(&button)),
+                binding: binding_label(hotkey_binding(state, button)),
             })
             .collect();
         Self { slots, unplaced }
